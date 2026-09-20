@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "academic-research": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/ABSOLUTE/PATH/TO/academic-research-mcp",
+        "run",
+        "server.py"
+      ]
+    }
+  }
+}

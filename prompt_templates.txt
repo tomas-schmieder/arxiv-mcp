@@ -1,0 +1,235 @@
+Prompt templates for Claude Desktop + the Academic Research MCP
+================================================================
+
+These are ready to paste into a Claude Desktop chat after the
+academic-research MCP server is connected (see README.md and
+claude_desktop_config.example.json). Replace the ALL_CAPS placeholders.
+
+The server exposes:
+
+  Tool     search_papers(query, max_results=5)
+  Resource citations://library/{keyword}   (empty keyword = full library)
+  Prompt   literature_review(topic, citation_style="APA")
+
+You can also open the MCP prompt picker in Claude Desktop and run
+literature_review directly. The templates below are for freeform chat
+when you want more control.
+
+
+------------------------------------------------------------------------
+1. Built-in MCP prompt (fastest demo)
+------------------------------------------------------------------------
+
+In Claude Desktop: Attach / use the literature_review prompt from the
+academic-research server, then fill:
+
+  topic:            retrieval augmented generation
+  citation_style:   APA
+
+Other topic / style pairs that work well with the seeded library:
+
+  topic: transformers                  citation_style: APA
+  topic: quantum optimization          citation_style: MLA
+  topic: differential privacy          citation_style: Chicago
+  topic: protein folding               citation_style: IEEE
+
+
+------------------------------------------------------------------------
+2. Full literature review (tool + resource)
+------------------------------------------------------------------------
+
+Write a short literature review on TOPIC.
+
+Use the academic-research MCP server:
+1. Call search_papers with query "TOPIC" and max_results 5.
+2. Read the citations://library/KEYWORD resource for anything already saved.
+3. Synthesize one or two paragraphs that combine the live arXiv hits
+   with any matching library papers.
+4. Cite sources in CITATION_STYLE (APA, MLA, Chicago, or IEEE).
+5. End with a short "Sources" list (title, authors, year, DOI).
+
+Do not invent papers. If a search fails, say so and work only with
+what the library returned.
+
+
+Example fill-in:
+
+  TOPIC = retrieval-augmented generation
+  KEYWORD = retrieval
+  CITATION_STYLE = APA
+
+
+------------------------------------------------------------------------
+3. Quick arXiv search
+------------------------------------------------------------------------
+
+Use the search_papers tool to find papers about QUERY.
+Return a table with columns: Title, Authors, Year, DOI, one-sentence
+takeaway from the abstract. Limit to MAX_RESULTS results.
+
+
+Example fill-in:
+
+  QUERY = attention transformers
+  MAX_RESULTS = 5
+
+
+------------------------------------------------------------------------
+4. Browse the local citation library
+------------------------------------------------------------------------
+
+Read the citations://library/KEYWORD resource and summarize the matching
+papers. If KEYWORD is empty, use citations://library/ for the full
+library. Group results by topic if there are more than a few.
+
+
+Example fill-ins:
+
+  KEYWORD = transformer
+  KEYWORD = quantum
+  KEYWORD =                        (empty → full library)
+
+
+------------------------------------------------------------------------
+5. Compare library vs. live arXiv
+------------------------------------------------------------------------
+
+I already have some papers saved locally. Help me see what is new.
+
+1. Read citations://library/KEYWORD.
+2. Call search_papers with query "QUERY".
+3. Tell me which live arXiv papers are not already in the library
+   (match on title or DOI).
+4. Recommend which new papers I should add, in one sentence each.
+
+
+Example fill-in:
+
+  KEYWORD = transformer
+  QUERY = long context transformers
+
+
+------------------------------------------------------------------------
+6. Annotated bibliography
+------------------------------------------------------------------------
+
+Build an annotated bibliography on TOPIC in CITATION_STYLE.
+
+Steps:
+1. search_papers("TOPIC", max_results=6)
+2. Read citations://library/KEYWORD
+3. Deduplicate by title/DOI
+4. For each unique paper, write:
+   - a full CITATION_STYLE citation
+   - 2–3 sentences on methods and findings (from the abstract only)
+   - one sentence on why it matters for TOPIC
+
+Do not pad with papers you did not retrieve.
+
+
+------------------------------------------------------------------------
+7. Related-work paragraph for a paper draft
+------------------------------------------------------------------------
+
+I am writing a paper on MY_PAPER_TOPIC. Draft a related-work paragraph.
+
+1. Call search_papers on "QUERY".
+2. Check citations://library/KEYWORD.
+3. Write 150–250 words that position my topic against the retrieved
+   work. Use parenthetical CITATION_STYLE citations.
+4. Flag any gaps (what the sources do not cover).
+
+
+Example fill-in:
+
+  MY_PAPER_TOPIC = human-AI collaboration in academic writing
+  QUERY = LLM writing assistants academic research
+  KEYWORD = writing
+  CITATION_STYLE = APA
+
+
+------------------------------------------------------------------------
+8. Citation-style conversion
+------------------------------------------------------------------------
+
+Look up papers on QUERY with search_papers (and citations://library/KEYWORD
+if relevant). Format the same set of sources three ways: APA, MLA, and
+IEEE. List them under three headings. Do not change which papers you cite.
+
+
+------------------------------------------------------------------------
+9. Narrow a fuzzy research question
+------------------------------------------------------------------------
+
+My research question is: RESEARCH_QUESTION
+
+1. Call search_papers with 2–3 different query phrasings.
+2. Skim citations://library/ for anything adjacent.
+3. Propose three tighter research questions, each grounded in papers
+   you actually retrieved. Name the supporting papers.
+
+
+Example fill-in:
+
+  RESEARCH_QUESTION = How should we evaluate retrieval-augmented
+  generation for scholarly search?
+
+
+------------------------------------------------------------------------
+10. Demo script (assignment walkthrough)
+------------------------------------------------------------------------
+
+We are demoing the Academic Research MCP server. Please do these
+steps in order and show the tool/resource calls:
+
+A. search_papers with query "attention transformers" and max_results 3.
+B. Read citations://library/transformer.
+C. Read citations://library/ (full library).
+D. Write a 4-sentence APA literature review that uses both the live
+   hits and the library paper(s).
+
+Then stop. Do not search again unless a call failed.
+
+
+------------------------------------------------------------------------
+11. Security-demo prompts (what you should see)
+------------------------------------------------------------------------
+
+These are for the assignment best-practice checks. They are safe to
+run; the server is supposed to treat them as data, not as SQL or as
+raw error dumps.
+
+SQL injection (resource should NOT dump the whole library or schema):
+
+  Please read the resource citations://library/zzz_no_such_paper' OR 1=1 --
+  and tell me exactly what came back. Then try
+  citations://library/' UNION SELECT sql, sql, 0, sql, sql FROM sqlite_master --
+  If you get "No papers matched that keyword" or an empty match, that
+  is the expected sanitized behavior.
+
+Error disclosure (tool should NOT return tracebacks or internal URLs):
+
+  Call search_papers with query "test". If it fails, quote the exact
+  error string. The expected client message is:
+  "Paper search is temporarily unavailable. Please try again later."
+  Do not speculate about stack traces or hostnames.
+
+
+------------------------------------------------------------------------
+12. Short system-style instruction (optional custom instructions)
+------------------------------------------------------------------------
+
+Paste this into Claude Desktop custom instructions if you want every
+chat to prefer the MCP server:
+
+You have an MCP server named academic-research. When I ask about
+papers, citations, or literature reviews:
+- use search_papers for live arXiv results
+- use citations://library/{keyword} for the local SQLite library
+- never invent titles, authors, years, or DOIs
+- if a tool returns the generic unavailability message, say the
+  search backend is down and continue with the library only
+- cite in the style I name; default to APA
+
+
+Generative AI Statement - Generated with Cursor Grok 4.6 

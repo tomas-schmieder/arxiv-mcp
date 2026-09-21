@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -13,47 +13,23 @@ from dotenv import load_dotenv
 # https://github.com/modelcontextprotocol/python-sdk
 from mcp.server.fastmcp import FastMCP
 
-from db.seed import DB_PATH, ensure_database
+from db.library import search_citation_library
+from db.seed import ensure_database
+from errors import sanitize_search_error
 
 # python-dotenv usage: https://pypi.org/project/python-dotenv/
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 ARXIV_NS = "{http://arxiv.org/schemas/atom}"
+# Override only for local error-disclosure demos; production uses arXiv.
+# arXiv API user manual: https://info.arxiv.org/help/api/user-manual.html
+ARXIV_API_URL = os.environ.get(
+    "ARXIV_API_URL", "https://export.arxiv.org/api/query"
+)
 
 mcp = FastMCP("Academic Research")
 ensure_database()
-
-
-def _format_papers(rows: list[sqlite3.Row]) -> str:
-    if not rows:
-        return "No papers matched that keyword."
-
-    blocks = []
-    for row in rows:
-        blocks.append(
-            f"[{row['id']}] {row['title']} ({row['year']})\n"
-            f"    Authors: {row['authors']}\n"
-            f"    DOI: {row['doi']}\n"
-            f"    Notes: {row['notes']}"
-        )
-    return "\n\n".join(blocks)
-
-
-def _search_citation_library(keyword: str) -> str:
-    """Return papers whose title or authors contain keyword (case-insensitive)."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        # TODO(part2): parameterize this query, it is vulnerable to SQL injection
-        sql = (
-            "SELECT id, title, authors, year, doi, notes FROM papers "
-            f"WHERE title LIKE '%{keyword}%' OR authors LIKE '%{keyword}%'"
-        )
-        rows = conn.execute(sql).fetchall()
-    finally:
-        conn.close()
-    return _format_papers(rows)
 
 
 @mcp.resource("citations://library/{keyword}")
@@ -62,13 +38,13 @@ def citation_library(keyword: str) -> str:
 
     An empty keyword (citations://library/) returns every saved paper.
     """
-    return _search_citation_library(keyword)
+    return search_citation_library(keyword)
 
 
 @mcp.resource("citations://library/")
 def citation_library_all() -> str:
     """Return the full local citation library (empty-keyword form of the template)."""
-    return _search_citation_library("")
+    return search_citation_library("")
 
 
 def _arxiv_doi(entry: ET.Element) -> str | None:
@@ -82,19 +58,12 @@ def _arxiv_doi(entry: ET.Element) -> str | None:
     return f"10.48550/arXiv.{arxiv_id.split('v')[0]}"
 
 
-@mcp.tool()
-def search_papers(query: str, max_results: int = 5) -> list[dict] | str:
-    """Search arXiv for papers matching a query.
-
-    Returns title, authors, year, doi, and abstract for each hit. No API key
-    is required.
-    """
+def search_arxiv(query: str, max_results: int = 5) -> list[dict] | str:
+    """Fetch matching papers from the arXiv API. Used by the MCP tool and demos."""
     response = None
     try:
-        # arXiv API user manual:
-        # https://info.arxiv.org/help/api/user-manual.html
         response = requests.get(
-            "https://export.arxiv.org/api/query",
+            ARXIV_API_URL,
             params={
                 "search_query": f"all:{query}",
                 "start": 0,
@@ -125,10 +94,17 @@ def search_papers(query: str, max_results: int = 5) -> list[dict] | str:
             )
         return results
     except Exception as exc:
-        # TODO(part2): this leaks internal detail, sanitize before returning
-        if response is not None:
-            return response.text or str(exc)
-        return str(exc)
+        return sanitize_search_error(exc, response)
+
+
+@mcp.tool()
+def search_papers(query: str, max_results: int = 5) -> list[dict] | str:
+    """Search arXiv for papers matching a query.
+
+    Returns title, authors, year, doi, and abstract for each hit. No API key
+    is required.
+    """
+    return search_arxiv(query, max_results)
 
 
 @mcp.prompt()

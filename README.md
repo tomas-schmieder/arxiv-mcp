@@ -72,14 +72,75 @@ The example launches the server with `uv run server.py` from this project
 directory, following the
 [official MCP server quickstart](https://modelcontextprotocol.io/quickstart/server).
 
+## Security best practices
+
+Two defenses sit in front of the MCP surfaces that talk to SQL and HTTP.
+
+### Input sanitization
+
+The citation resource used to interpolate the keyword into SQL with an
+f-string. Keywords are now bound with sqlite3 placeholders, and LIKE
+wildcards (`%`, `_`) are escaped so a search is a literal substring match.
+
+Run the exploit demo:
+
+```bash
+uv run python exploits/sql_injection.py
+```
+
+It replays two payloads against the old query, then against the
+parameterized one:
+
+| Payload | Without parameterization | With parameterization |
+| --- | --- | --- |
+| `zzz_no_such_paper' OR 1=1 --` | Returns every seeded paper | No rows (treated as a literal) |
+| `' UNION SELECT ... FROM sqlite_master --` | Leaks `CREATE TABLE` DDL | No rows |
+
+A normal search for `transformer` still returns the transformer paper.
+
+In Inspector, the same UNION payload on `citations://library/{keyword}`
+should return “No papers matched that keyword.”
+
+### Error disclosure
+
+Part 1 returned raw `response.text` or `str(exc)` to the client, which can
+include tracebacks, URLs, and other internals. Failures now log server-side
+and return a generic message:
+
+`Paper search is temporarily unavailable. Please try again later.`
+
+Run the exploit demo:
+
+```bash
+uv run python exploits/error_disclosure.py
+```
+
+It feeds the old handler a fake HTTP 500 body and a connection error that
+contain a marker secret, then shows that `search_papers` returns only the
+generic string.
+
+To see the same behavior in Inspector, point the tool at a closed port and
+call `search_papers`:
+
+```bash
+ARXIV_API_URL=http://127.0.0.1:1 uv run mcp dev server.py
+```
+
+You should get the generic message, not a connection-pool traceback.
+
 ## Project layout
 
 ```
 .
 ├── server.py                          # FastMCP server: resource, tool, prompt
+├── errors.py                          # Generic client errors; details stay in logs
 ├── db/
 │   ├── schema.sql                     # papers table
-│   └── seed.py                        # sample citation library
+│   ├── seed.py                        # sample citation library
+│   └── library.py                     # parameterized citation search
+├── exploits/
+│   ├── sql_injection.py               # tautology + UNION demo
+│   └── error_disclosure.py            # raw error vs generic message
 ├── claude_desktop_config.example.json # Claude Desktop MCP config
 ├── requirements.txt
 └── pyproject.toml
